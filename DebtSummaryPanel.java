@@ -40,7 +40,7 @@ public class DebtSummaryPanel extends JPanel {
             summaryPanel.add(errorLabel);
         }
 
-        JButton printButton = new JButton("Print Test File");
+        JButton printButton = new JButton("Print Text File");
         printButton.setFont(new Font("Arial", Font.BOLD, 16));
         printButton.setBackground(new Color(75, 110, 175));
         printButton.setForeground(Color.BLACK);

@@ -106,7 +106,7 @@ public class DividlyApp {
 
             // Create tables for participants and transactions
             String participantTableSQL = "CREATE TABLE " + dbName + ".participants (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(100), balance DECIMAL(10, 2) DEFAULT 0)";
-            String transactionTableSQL = "CREATE TABLE " + dbName + ".transactions (id INT PRIMARY KEY AUTO_INCREMENT, participant_id INT, amount DECIMAL(10, 2), currency VARCHAR(10), description VARCHAR(255), transaction_date DATE)";
+            String transactionTableSQL = "CREATE TABLE " + dbName + ".transactions (id INT PRIMARY KEY AUTO_INCREMENT, participant_id INT, amount DECIMAL(10, 2), currency VARCHAR(10), description VARCHAR(255), transaction_date DATE, reimbursed BOOLEAN DEFAULT FALSE)";
             stmt.executeUpdate(participantTableSQL);
             stmt.executeUpdate(transactionTableSQL);
             JOptionPane.showMessageDialog(null, "Tables created successfully.", "Success", JOptionPane.INFORMATION_MESSAGE);
@@ -175,25 +175,32 @@ public class DividlyApp {
     static class DebtSummaryPanel extends JPanel {
         public DebtSummaryPanel(String dbName) {
             setLayout(new BorderLayout());
-            JTextArea textArea = new JTextArea();
-            textArea.setBackground(new Color(43, 43, 43));
-            textArea.setForeground(Color.WHITE);
-            textArea.setFont(new Font("Monospaced", Font.BOLD, 18));
-            textArea.setEditable(false);
+            JPanel summaryPanel = new JPanel();
+            summaryPanel.setLayout(new BoxLayout(summaryPanel, BoxLayout.Y_AXIS));
+            summaryPanel.setBackground(new Color(43, 43, 43));
+
             try (Connection conn = DriverManager.getConnection(DB_URL + dbName, USER, PASSWORD);
                  Statement stmt = conn.createStatement()) {
                 ResultSet rs = stmt.executeQuery("SELECT name, balance FROM participants");
-                StringBuilder sb = new StringBuilder("Debt Summary: \n");
                 while (rs.next()) {
                     String name = rs.getString("name");
                     double balance = rs.getDouble("balance");
-                    sb.append(String.format("%s: %.2f\n", name, balance));
+                    JLabel label = new JLabel(String.format("%s: %.2f", name, balance));
+                    label.setFont(new Font("Monospaced", Font.BOLD, 18));
+                    if (balance >= 0) {
+                        label.setForeground(Color.GREEN); // Dark green
+                    } else {
+                        label.setForeground(Color.RED);
+                    }
+                    summaryPanel.add(label);
                 }
-                textArea.setText(sb.toString());
             } catch (Exception ex) {
-                textArea.setText("Error: " + ex.getMessage());
+                JLabel errorLabel = new JLabel("Error: " + ex.getMessage());
+                errorLabel.setForeground(Color.RED);
+                summaryPanel.add(errorLabel);
             }
-            add(new JScrollPane(textArea), BorderLayout.CENTER);
+
+            add(new JScrollPane(summaryPanel), BorderLayout.CENTER);
         }
     }
 }
@@ -208,7 +215,7 @@ class ManageTransactionsPanel extends JPanel {
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
         // Transaction Table styling
-        String[] columnNames = {"ID", "Participant ID", "Amount", "Currency", "Description", "Date"};
+        String[] columnNames = {"Participant Name", "Amount", "Currency", "Description", "Date"};
         DefaultTableModel tableModel = new DefaultTableModel(columnNames, 0);
         transactionTable = new JTable(tableModel);
         transactionTable.setBackground(new Color(43, 43, 43));
@@ -227,19 +234,19 @@ class ManageTransactionsPanel extends JPanel {
     private void refreshData() {
         try (Connection conn = DriverManager.getConnection(DividlyApp.DB_URL + dbName, DividlyApp.USER, DividlyApp.PASSWORD);
              Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery("SELECT * FROM transactions");
+            ResultSet rs = stmt.executeQuery("SELECT p.name AS participant_name, t.amount, t.currency, t.description, t.transaction_date FROM transactions t JOIN participants p ON t.participant_id = p.id");
             DefaultTableModel tableModel = (DefaultTableModel) transactionTable.getModel();
             tableModel.setRowCount(0); // Clear existing rows
 
             while (rs.next()) {
-                int id = rs.getInt("id");
-                int participantId = rs.getInt("participant_id");
+                String participantName = rs.getString("participant_name");
                 double amount = rs.getDouble("amount");
                 String currency = rs.getString("currency");
                 String description = rs.getString("description");
                 String date = rs.getString("transaction_date");
-                tableModel.addRow(new Object[]{id, participantId, amount, currency, description, date});
+                tableModel.addRow(new Object[]{participantName, amount, currency, description, date});
             }
+
 
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
@@ -332,7 +339,7 @@ class AddTransactionPanel extends JPanel {
 
         JButton btnSubmitTransaction = new JButton("Submit");
         btnSubmitTransaction.setBackground(new Color(75, 110, 175));
-        btnSubmitTransaction.setForeground(Color.WHITE);
+        btnSubmitTransaction.setForeground(Color.BLACK);
         btnSubmitTransaction.setFont(new Font("Arial", Font.BOLD, 16));
         btnSubmitTransaction.setFocusPainted(false);
         gbc.gridx = 1;
@@ -369,7 +376,7 @@ class AddTransactionPanel extends JPanel {
                 }
                 // Update each receiver's balance and insert the transaction
                 for (String forWho : selectedForWho) {
-                    try (PreparedStatement pstmt = conn.prepareStatement("INSERT INTO transactions (participant_id, amount, currency, description, transaction_date) VALUES ((SELECT id FROM participants WHERE name=?), ?, ?, ?, ?)");
+                    try (PreparedStatement pstmt = conn.prepareStatement("INSERT INTO transactions (participant_id, amount, currency, description, transaction_date, reimbursed) VALUES ((SELECT id FROM participants WHERE name=?), ?, ?, ?, ?, FALSE)");
                          PreparedStatement updateReceiver = conn.prepareStatement("UPDATE participants SET balance = balance - ? WHERE name = ?")) {
                         pstmt.setString(1, whoPays);
                         pstmt.setDouble(2, splitAmount);
